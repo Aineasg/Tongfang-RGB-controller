@@ -1,6 +1,6 @@
-# Tongfang/AiStone Keyboard RGB Controller
+# Tongfang/AiStone System Controller
 
-A fast, feature-rich RGB keyboard lighting controller for Tongfang/AiStone laptops with ITE 8291 keyboard controller. Includes both a powerful CLI tool and a modern GTK4 GUI application.
+A fast, feature-rich RGB keyboard lighting and fan controller for Tongfang/AiStone laptops with ITE 8291 keyboard controller. Includes both a powerful CLI tool and a modern GTK4 GUI application that controls **both RGB lighting and fans in a single window**.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux-informational.svg)
@@ -34,13 +34,21 @@ Including: red, orange, yellow, green, cyan, blue, purple, violet, magenta, pink
 | **Lightning** | Random lightning flash effects |
 | **Pulse** | Color cycling through the spectrum |
 
-### 🖥️ Dual Interface
-- **CLI** - Fast terminal commands for scripting and quick changes
-- **GUI** - Visual GTK4 application with interactive keyboard layout
+> **Note:** Animations run in a dedicated background thread — the GUI stays fully responsive while effects are active.
 
-### 🔄 Background Mode
+### 🌡️ Fan Control (GUI)
+- **Live RPM readout** for both CPU and GPU fans with animated fan visualization
+- **Temperature monitoring** — real-time CPU temperature display
+- **Fan modes** — switch between Auto (intelligent) and Boost with one click
+- **EC-based control** via `acpi_call` — safe reads and writes with validation
+- Requires `acpi_call` and `ec_sys` kernel modules (see Requirements)
+
+### 🖥️ Combined GUI
+Everything in **one panel** — RGB keyboard controls on top, fan monitoring and control below. No need to juggle separate tools.
+
+### 🔄 Background Mode (CLI)
 - Run animations in the background (daemon mode)
-- Continue using your terminal or close it - animation keeps running
+- Continue using your terminal or close it — animation keeps running
 - Easy start/stop controls
 
 ## 📋 Requirements
@@ -49,12 +57,26 @@ Including: red, orange, yellow, green, cyan, blue, purple, violet, magenta, pink
 - **Tongfang/AiStone laptop** with ITE 8291 keyboard controller
 - Compatible models: X6RP57TW, GK5CN5Z, GK5CP6Z, and other Tongfang chassis
 - **USB ID**: `048d:600b`
-- **LED zones**: 126 (numbered 0-125)
+- **LED zones**: 126 (numbered 0–125)
 
 ### Software
 - Linux kernel with LED sysfs support
 - Python 3.8 or higher
 - Root/sudo access (required for hardware control)
+
+#### Additional requirements for fan control
+- `acpi_call` kernel module — for writing fan modes via ACPI
+- `ec_sys` kernel module — for reading fan RPM, temperature, and duty cycle
+
+```bash
+# Load the modules (temporary, until next reboot)
+sudo modprobe acpi_call
+sudo modprobe ec_sys write_support=1
+
+# To load them automatically on boot (Arch/CachyOS)
+echo "acpi_call" | sudo tee /etc/modules-load.d/fan-control.conf
+echo "ec_sys" | sudo tee -a /etc/modules-load.d/fan-control.conf
+```
 
 ## 📦 Installation
 
@@ -101,7 +123,7 @@ source ~/.zshrc                     # Zsh
 
 The setup script will:
 1. Install the CLI tool to `/usr/local/bin/kbd-rgb`
-2. Install the GUI to `/usr/local/bin/kbd-rgb-gui`
+2. Install the combined GUI to `/usr/local/bin/kbd-rgb-gui`
 3. Install required dependencies for your distribution
 4. Create sudoers rules for passwordless execution
 5. Add shell aliases for easy access
@@ -112,7 +134,7 @@ The setup script will:
 ### GUI Application
 
 ```bash
-# Launch the GUI
+# Launch the combined RGB + Fan controller GUI
 sudo kbd-rgb-gui
 ```
 
@@ -122,8 +144,9 @@ Or find **"Keyboard RGB Controller"** in your application menu.
 - Click on the virtual keyboard to select keys
 - Use the color picker or preset colors
 - Apply colors to selected keys, sectors, or all keys
-- Start/stop animations with speed control
-- Enable background mode for persistent animations
+- Start/stop animations — GUI stays responsive during animations
+- Monitor CPU/GPU fan RPM and CPU temperature in real time
+- Switch fan modes (Auto / Boost) directly from the GUI
 
 ### CLI Commands
 
@@ -217,7 +240,7 @@ Plus many more including neon variants (neon_green, neon_blue, neon_pink, neon_o
 ```
 tongfang-rgb/
 ├── kbd-rgb.py          # Main CLI application
-├── kbd-rgb-gui.py      # GTK4 GUI application
+├── kbd-rgb-gui.py      # Combined GTK4 GUI (RGB + Fan control)
 ├── setup.sh            # Universal installation script
 ├── install-deps.sh     # Dependency installer
 ├── Makefile            # Make-based installation
@@ -230,44 +253,52 @@ tongfang-rgb/
 
 ### Hardware Communication
 - Uses Linux sysfs interface at `/sys/class/leds/rgb:kbd_backlight_*/`
-- Each zone has a `multi_intensity` file accepting "R G B" values (0-50)
-- No kernel modules required - works with standard Linux LED class
+- Each zone has a `multi_intensity` file accepting "R G B" values (0–50)
+- No kernel modules required for RGB — works with standard Linux LED class
+- Fan control uses ACPI method `\_SB.AMW0.WMBC` via `acpi_call`
+- Fan status is read directly from the EC register map via `/sys/kernel/debug/ec/ec0/io`
 
 ### Color Range
-- **Important**: The ITE 8291 uses a **0-50** color range, NOT 0-255!
+- **Important**: The ITE 8291 uses a **0–50** color range, NOT 0–255!
 - This is a hardware limitation of the controller
 - The software handles conversion automatically
 
 ### Zone Mapping
 - Zone 0: Left Ctrl key
-- Zones 1-125: Other keys (see KEY_MAP in source)
+- Zones 1–125: Other keys (see `KEY_MAP` in source)
 - Total: 126 controllable zones
+- Some physical keys (e.g. Tab) span two separate LED zones — both are written automatically
+
+### Fan Control Safety
+- All EC writes are validated before being sent
+- PWM values are capped at the safe maximum (200)
+- Fan mode byte is checked against the known-valid set before writing
+- The GUI gracefully degrades if `acpi_call` or `ec_sys` is unavailable — RGB controls still work fully
 
 ## 🔧 Troubleshooting
 
 ### "No LED zones detected"
-1. Check if your device is recognized:
-   ```bash
-   ls /sys/class/leds/ | grep kbd_backlight
-   ```
-2. Ensure ITE 8291 controller is present:
-   ```bash
-   lsusb | grep 048d:600b
-   ```
+```bash
+ls /sys/class/leds/ | grep kbd_backlight
+lsusb | grep 048d:600b
+```
 
 ### GUI doesn't start
-1. Verify GTK4 is installed:
-   ```bash
-   python3 -c "import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; print('OK')"
-   ```
-2. Install missing dependencies (see Installation section)
+```bash
+python3 -c "import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk; print('OK')"
+```
+Install missing dependencies (see Installation section).
 
 ### Colors don't change
 - Ensure you're running with `sudo` or the sudoers rule is active
-- Check your user is in the sudoers file:
-   ```bash
-   cat /etc/sudoers.d/kbd-rgb
-   ```
+- Check: `cat /etc/sudoers.d/kbd-rgb`
+
+### Fan control section shows a warning
+The GUI will show an orange warning if the fan control modules aren't loaded. RGB lighting still works normally. Load the modules to enable fan control:
+```bash
+sudo modprobe acpi_call
+sudo modprobe ec_sys write_support=1
+```
 
 ### Animation won't stop
 ```bash
@@ -293,7 +324,7 @@ sudo rm /tmp/kbd-rgb.pid
 - Other Tongfang chassis laptops with ITE 8291
 
 ### Should Work On
-Any laptop with the ITE 8291 keyboard controller (USB ID: 048d:600b)
+Any laptop with the ITE 8291 keyboard controller (USB ID: 048d:600b). Fan control requires compatible ACPI methods — tested on X6RP57TW.
 
 ## 🔌 Adding Support for Your Laptop
 
@@ -304,25 +335,23 @@ Want to add support for your laptop? Here's how you can help!
 [Open an issue](https://github.com/aineasg/tongfang-rgb/issues) with the title "Support Request: [Your Laptop Model]" and include:
 
 ```bash
-# Run these commands and paste the output:
-
-# 1. Laptop model information
+# 1. Laptop model
 sudo dmidecode -t system | grep -E "Manufacturer|Product Name|Version"
 
 # 2. USB device check
 lsusb | grep -i "ite\|048d"
 
-# 3. Check for LED sysfs interface
+# 3. LED sysfs interface
 ls -la /sys/class/leds/ | grep -i kbd
 
-# 4. Count available LED zones
+# 4. Zone count
 ls /sys/class/leds/rgb:kbd_backlight* 2>/dev/null | wc -l
 
-# 5. Check if zones are writable (run as root)
+# 5. Writability check (run as root)
 sudo ls -la /sys/class/leds/rgb:kbd_backlight/multi_intensity 2>/dev/null
 
-# 6. Test writing a color (optional, run as root)
-echo "50 0 0" | sudo tee /sys/class/leds/rgb:kbd_backlight/multi_intensity 2>/dev/null && echo "Write successful!" || echo "Write failed"
+# 6. Test write (run as root)
+echo "50 0 0" | sudo tee /sys/class/leds/rgb:kbd_backlight/multi_intensity 2>/dev/null
 
 # 7. Kernel version
 uname -r
@@ -331,75 +360,21 @@ uname -r
 cat /etc/os-release | grep -E "^NAME=|^VERSION="
 ```
 
-If your laptop has a different ITE controller or uses a different sysfs path, also include:
-```bash
-# List all LED devices
-ls -la /sys/class/leds/
-
-# Check for any RGB keyboard devices
-find /sys/class/leds/ -name "*kbd*" -o -name "*keyboard*" -o -name "*rgb*"
-```
-
-### Option 2: Submit an EC Dump (Advanced)
-
-If you want to help reverse-engineer a new controller:
+### Option 2: Submit an EC Dump (for fan control support)
 
 ```bash
-# Install ec-dump tool (if available) or use:
 sudo modprobe ec_sys
 sudo cat /sys/kernel/debug/ec/ec0/io 2>/dev/null | xxd > ec-dump.txt
-
-# Or use the kernel's embedded controller interface
-sudo hexdump -C /sys/kernel/debug/ec/ec0/io > ec-dump-verbose.txt 2>/dev/null
 ```
 
-Attach the dump files to your issue.
+Attach the dump to your issue.
 
 ### Option 3: Add Support Yourself
 
-If your laptop uses a similar sysfs interface but with different zone mappings:
-
-1. **Fork the repository**
-
-2. **Identify your zone mapping**:
-   ```bash
-   # Test each zone to find which key it controls
-   for i in $(ls /sys/class/leds/ | grep kbd_backlight | sed 's/rgb:kbd_backlight//' | tr -d '_'); do
-       echo "Testing zone: $i"
-       echo "50 0 0" > /sys/class/leds/rgb:kbd_backlight${i}_$i/multi_intensity 2>/dev/null || \
-       echo "50 0 0" > /sys/class/leds/rgb:kbd_backlight_$i/multi_intensity 2>/dev/null
-       sleep 0.5
-   done
-   ```
-
-3. **Edit `kbd-rgb.py`**:
-   - Update `KEY_MAP` dictionary with your zone numbers
-   - Update `TOTAL_ZONES` if you have a different number
-   - Update `SECTORS` and `ROWS` if needed
-
-4. **Test thoroughly**:
-   ```bash
-   sudo ./kbd-rgb.py all red
-   sudo ./kbd-rgb.py sector wasd blue
-   ```
-
-5. **Submit a Pull Request** with:
-   - Your laptop model name
-   - The changes you made
-   - Confirmation that it works
-
-### What I Need to Add Support
-
-| Information | Why It's Needed |
-|-------------|-----------------|
-| Laptop model | To list compatible devices |
-| `lsusb` output | To identify the controller chip |
-| Zone count | To set `TOTAL_ZONES` correctly |
-| Zone mapping | To map keys to LED zones |
-| Sysfs path | If different from `rgb:kbd_backlight` |
-| Color range | If different from 0-50 |
-
-I'll review submissions and merge valid support additions to the main branch!
+1. Fork the repository
+2. Identify your zone mapping by iterating zones and noting which key lights up
+3. Update `KEY_MAP`, `TOTAL_ZONES`, `SECTORS` in the source
+4. Test and submit a Pull Request with your laptop model and confirmation it works
 
 ## 📝 License
 
@@ -413,8 +388,7 @@ MIT License - Feel free to use, modify, and distribute.
 
 ## 🐛 Reporting Issues
 
-If you encounter any issues, please [open an issue](https://github.com/aineasg/tongfang-rgb/issues) with:
-
+[Open an issue](https://github.com/aineasg/tongfang-rgb/issues) with:
 1. Your laptop model
 2. Linux distribution
 3. Output of:
@@ -424,6 +398,15 @@ If you encounter any issues, please [open an issue](https://github.com/aineasg/t
    ```
 
 ## 🔄 Changelog
+
+### v2.0.0
+- **Combined GUI** — RGB keyboard control and fan control now in a single window
+- **Fan monitoring** — live CPU/GPU RPM, CPU temperature, and fan mode display
+- **Fan mode control** — switch between Auto and Boost directly from the GUI
+- **Animated fan visualization** — fan blades spin in sync with actual RPM
+- **Non-blocking animations** — animation engine moved to a background thread; GUI is fully responsive during effects
+- **Key mapping fixes** — Tab key now correctly writes both LED zones (42 and 63)
+- EC fan control uses safe ACPI method with validated writes and PWM capping
 
 ### v1.0.0
 - Initial release
