@@ -33,7 +33,7 @@ And because every great RGB tool needs a world-class fan controller, you also ge
 | **Auto** | Let the EC decide. Sensible, boring, thermally safe. |
 | **Boost** | Full send. All fan, all the time. Your ears will know. |
 
-> Yes, that's it. Two options. We didn't want to overwhelm you. 😂
+> Yes, that's it. Two options. I didn't want to overwhelm you. 😂
 
 In all seriousness — the fan panel does also show you live CPU and GPU RPM, CPU temperature, current fan duty cycle, and active fan mode, with an animated fan visualization that spins proportionally to real RPM. It reads directly from the EC register map via `ec_sys`, so the numbers are accurate.
 
