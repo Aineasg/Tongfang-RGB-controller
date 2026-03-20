@@ -2,6 +2,43 @@
 
 A fast, feature-rich RGB keyboard lighting and fan controller for Tongfang/AiStone laptops with ITE 8291 keyboard controller. Includes both a powerful CLI tool and a modern GTK4 GUI application that controls **both RGB lighting and fans in a single window**.
 
+---
+
+## 🖥️ About the GUI Program
+
+`kbd-rgb-gui.py` is a GTK4 desktop application built specifically for the Tongfang/AiStone X6RP57TW (and compatible chassis). It gives you a **visual, interactive control panel** for every RGB zone on your keyboard, plus real-time fan monitoring and control — all without ever touching a terminal.
+
+### Keyboard & Lighting Control
+
+The heart of the GUI is a **pixel-accurate virtual keyboard** that mirrors your physical layout, including the full numpad, arrow cluster, and function row. Every key is rendered as a clickable button that shows its **current backlight color in real time**.
+
+You can build your lighting setup in layers:
+
+- **Click individual keys** to select them, then pick any color from the RGB sliders or the built-in swatch palette and hit *Apply Selected*. Selected keys glow with a white highlight border so you always know what you have active.
+- **Sector buttons** let you instantly light up logical groups — WASD for gaming, the function row, all letters, the numpad, arrows, or modifiers — without hunting for individual keys.
+- **Quick Color buttons** set the entire keyboard to a preset color in one click. Great for switching between a "work" and "gaming" setup fast.
+- **All Keys** applies whatever color is in the picker to every single zone at once.
+- **Animations** — Fire, Rainbow, and Wave — run in a dedicated background thread so the GUI never freezes or becomes unresponsive while effects are playing. You can switch animations, stop them, or change colors mid-animation without any lag.
+
+The color picker uses the hardware's native **0–50 brightness range** (a quirk of the ITE 8291 controller) but converts automatically so the displayed RGB preview always looks correct.
+
+Colors are written directly to `/sys/class/leds/rgb:kbd_backlight_*/multi_intensity` — no daemon, no config files, changes take effect on the keyboard **instantly**.
+
+### 🌡️ Fan Control
+
+And because every great RGB tool needs a world-class fan controller, you also get access to a **massive, overwhelming library of fan control options**:
+
+| Mode | Description |
+|------|-------------|
+| **Auto** | Let the EC decide. Sensible, boring, thermally safe. |
+| **Boost** | Full send. All fan, all the time. Your ears will know. |
+
+> Yes, that's it. Two options. We didn't want to overwhelm you. 😂
+
+In all seriousness — the fan panel does also show you live CPU and GPU RPM, CPU temperature, current fan duty cycle, and active fan mode, with an animated fan visualization that spins proportionally to real RPM. It reads directly from the EC register map via `ec_sys`, so the numbers are accurate.
+
+---
+
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux-informational.svg)
 ![Python](https://img.shields.io/badge/python-3.8+-success.svg)
