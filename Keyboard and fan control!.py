@@ -80,6 +80,7 @@ EC_ADDR_SUPPORT_BYTE5 = 1858
 EC_CPU_RPM_LO = 0x08
 EC_CPU_RPM_HI = 0x09
 EC_CPU_TEMP = 0x3E
+EC_GPU_TEMP = 0x45  # GPU temperature (common offset for ITE EC on gaming laptops)
 EC_FAN_DUTY = 0x60
 EC_FAN_STEP = 0x64
 EC_FAN_MODE = 0x8D
@@ -159,6 +160,119 @@ SECONDARY_ZONES = {
     "tab": [63],
 }
 
+# Zone → (row, col) in the ITE 8291 hardware matrix (6 rows × 21 cols)
+# Calibrated on void-nexs 2026-05-09 via direct USB HID scan
+ZONE_TO_RC: Dict[int, Tuple[int, int]] = {
+    # Row 0 — bottom row
+    0:  (0,  0),   # ctrl (left)
+    2:  (0,  2),   # fn
+    3:  (0,  3),   # win
+    4:  (0,  4),   # left alt
+    7:  (0,  7),   # space
+    10: (0, 10),   # altgr
+    12: (0, 12),   # copilot
+    13: (0, 13),   # ←
+    14: (0, 14),   # ↑
+    15: (0, 15),   # →
+    16: (0, 16),   # num 0
+    17: (0, 17),   # num .
+    18: (0, 18),   # ↓
+    # Row 1 — ZXCV
+    22: (1,  1),   # left shift
+    23: (1,  2),   # | (left, near shift)
+    24: (1,  3),   # z
+    25: (1,  4),   # x
+    26: (1,  5),   # c
+    27: (1,  6),   # v
+    28: (1,  7),   # b
+    29: (1,  8),   # n
+    30: (1,  9),   # m
+    31: (1, 10),   # ,
+    32: (1, 11),   # .
+    33: (1, 12),   # /
+    35: (1, 14),   # right shift
+    36: (1, 15),   # num 1
+    37: (1, 16),   # num 2
+    38: (1, 17),   # num 3
+    39: (1, 18),   # num enter
+    # Row 2 — ASDF
+    43: (2,  0),   # caps lock
+    44: (2,  2),   # a
+    45: (2,  3),   # s
+    46: (2,  4),   # d
+    47: (2,  5),   # f
+    48: (2,  6),   # g
+    49: (2,  7),   # h
+    50: (2,  8),   # j
+    51: (2,  9),   # k
+    52: (2, 10),   # l
+    53: (2, 11),   # ;
+    54: (2, 12),   # '
+    55: (2, 13),   # | (right, near numpad)
+    57: (2, 15),   # num 4
+    58: (2, 16),   # num 5
+    59: (2, 17),   # num 6
+    # Row 3 — QWERTY
+    42: (3,  0),   # tab
+    65: (3,  2),   # q
+    66: (3,  3),   # w
+    67: (3,  4),   # e
+    68: (3,  5),   # r
+    69: (3,  6),   # t
+    70: (3,  7),   # y
+    71: (3,  8),   # u
+    72: (3,  9),   # i
+    73: (3, 10),   # o
+    74: (3, 11),   # p
+    75: (3, 12),   # [
+    76: (3, 13),   # ]
+    77: (3, 14),   # enter
+    78: (3, 15),   # num 7
+    79: (3, 16),   # num 8
+    80: (3, 17),   # num 9
+    81: (3, 18),   # num +
+    # Row 4 — number row
+    84: (4,  0),   # `~
+    85: (4,  1),   # 1
+    86: (4,  2),   # 2
+    87: (4,  3),   # 3
+    88: (4,  4),   # 4
+    89: (4,  5),   # 5
+    90: (4,  6),   # 6
+    91: (4,  7),   # 7
+    92: (4,  8),   # 8
+    93: (4,  9),   # 9
+    94: (4, 10),   # 0
+    95: (4, 11),   # -
+    96: (4, 12),   # =
+    98: (4, 14),   # backspace
+    99: (4, 15),   # num lock
+   100: (4, 16),   # num /
+   101: (4, 17),   # num *
+   102: (4, 18),   # num -
+    # Row 5 — function row (physical top)
+   105: (5,  0),   # esc
+   106: (5,  1),   # f1
+   107: (5,  2),   # f2
+   108: (5,  3),   # f3
+   109: (5,  4),   # f4
+   110: (5,  5),   # f5
+   111: (5,  6),   # f6
+   112: (5,  7),   # f7
+   113: (5,  8),   # f8
+   114: (5,  9),   # f9
+   115: (5, 10),   # f10
+   116: (5, 11),   # f11
+   117: (5, 12),   # f12
+   118: (5, 13),   # scrlk / camera key
+   119: (5, 14),   # prtsc
+   120: (5, 15),   # del
+   121: (5, 16),   # home
+   122: (5, 17),   # pgup
+   123: (5, 18),   # pgdn
+   124: (5, 19),   # end
+}
+
 ZONE_TO_KEY = {v: k for k, v in KEY_MAP.items()}
 
 SECTORS = {
@@ -176,7 +290,8 @@ KEYBOARD_LAYOUT = [
     ("fn", [("Esc", "esc", 1), ("F1", "f1", 1), ("F2", "f2", 1), ("F3", "f3", 1), ("F4", "f4", 1),
             ("F5", "f5", 1), ("F6", "f6", 1), ("F7", "f7", 1), ("F8", "f8", 1),
             ("F9", "f9", 1), ("F10", "f10", 1), ("F11", "f11", 1), ("F12", "f12", 1),
-            ("PrtSc", "prtsc", 1), ("Ins", "home", 1), ("Del", "del", 1)]),
+            ("Sc", "scrlock", 1), ("PrtSc", "prtsc", 1), ("Ins", "home", 1), ("Del", "del", 1),
+            ("", "", 0.5), ("PgUp", "pgup", 1), ("PgDn", "pgdn", 1), ("End", "end", 1)]),
     ("num", [("`", "grave", 1), ("1", "1", 1), ("2", "2", 1), ("3", "3", 1), ("4", "4", 1),
              ("5", "5", 1), ("6", "6", 1), ("7", "7", 1), ("8", "8", 1), ("9", "9", 1),
              ("0", "0", 1), ("-", "minus", 1), ("=", "equal", 1), ("⌫", "backspace", 2),
@@ -189,12 +304,12 @@ KEYBOARD_LAYOUT = [
               ("G", "g", 1), ("H", "h", 1), ("J", "j", 1), ("K", "k", 1), ("L", "l", 1),
               (";", "semicolon", 1), ("'", "quote", 1), ("Enter", "enter", 2.25),
               ("", "", 0.5), ("4", "numpad_4", 1), ("5", "numpad_5", 1), ("6", "numpad_6", 1), ("", "", 1)]),
-    ("zxcv", [("Shift", "lshift", 2.25), ("Z", "z", 1), ("X", "x", 1), ("C", "c", 1),
+    ("zxcv", [("Shift", "lshift", 1.25), ("\\|", "backslash_left", 1), ("Z", "z", 1), ("X", "x", 1), ("C", "c", 1),
               ("V", "v", 1), ("B", "b", 1), ("N", "n", 1), ("M", "m", 1),
               (",", "comma", 1), (".", "period", 1), ("/", "slash", 1), ("Shift", "rshift", 2.75),
               ("", "", 0.5), ("1", "numpad_1", 1), ("2", "numpad_2", 1), ("3", "numpad_3", 1), ("Ent", "numpad_enter", 1)]),
     ("bottom", [("Ctrl", "lctrl", 1.25), ("Fn", "fn", 1), ("Win", "lwin", 1.25), ("Alt", "lalt", 1.25),
-                ("", "space", 6.25), ("Alt", "ralt", 1.25), ("Ctrl", "rctrl", 1.25),
+                ("", "space", 6.25), ("Alt", "ralt", 1.25), ("CP", "copilot", 1.25), ("Ctrl", "rctrl", 1.25),
                 ("", "", 0.5), ("0", "numpad_0", 2), (".", "numpad_dot", 1)]),
     ("arrows", [("", "", 13), ("↑", "up", 1), ("", "", 2)]),
     ("arrows2", [("", "", 12), ("←", "left", 1), ("↓", "down", 1), ("→", "right", 1)]),
@@ -217,43 +332,53 @@ class ECController:
     def check_requirements(self) -> Tuple[bool, List[str]]:
         """Check if all requirements are met for EC access."""
         errors = []
-
-        if os.geteuid() != 0:
-            errors.append("Root access required (run with sudo)")
-
+        # Note: root check removed — acpi_call permissions are handled via
+        # acpi-call-perms.service which makes /proc/acpi/call world-writable.
         if not self.acpi_available:
             errors.append("acpi_call module not loaded (sudo modprobe acpi_call)")
-
         if not self.ec_sysfs_available:
             errors.append("ec_sys module not loaded (sudo modprobe ec_sys)")
-
         return len(errors) == 0, errors
+
+    def _buffer_to_int(self, raw: str) -> int:
+        """Parse EC buffer response like '{0x51, 0x07, 0x40, 0x00, ...}'.
+        Byte index 2 carries the relevant register value for getsetulong ops."""
+        raw = raw.strip()
+        for ch in ('{', '}'):
+            raw = raw.replace(ch, '')
+        parts = [p.strip() for p in raw.split(',') if p.strip()]
+        if len(parts) >= 3:
+            return int(parts[2], 16)
+        # Fallback: full little-endian parse
+        parts.reverse()
+        return int.from_bytes(bytearray(int(x, 16) for x in parts), 'big')
 
     def _acpi_call(self, data: int) -> int:
         """Execute ACPI call with error handling."""
         if not self.acpi_available:
             raise RuntimeError("acpi_call not available")
 
+        cmd = f"\\_SB.AMW0.WMBC 0 4 {data}"
         try:
+            with open('/proc/acpi/call', 'w') as f:
+                f.write(cmd + '\n')
+            with open('/proc/acpi/call', 'r') as f:
+                raw = f.read().strip().rstrip('\x00')
+        except PermissionError:
+            # Fallback: sudo subprocess
             subprocess.check_call(
-                f"echo '\\_SB.AMW0.WMBC 0 4 {data}' > /proc/acpi/call",
-                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
+                f"echo '{cmd}' | sudo tee /proc/acpi/call",
+                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             raw = subprocess.check_output(
-                "cat /proc/acpi/call", shell=True, stderr=subprocess.DEVNULL
-            )[:-1].decode()
+                "sudo cat /proc/acpi/call", shell=True,
+                stderr=subprocess.DEVNULL)[:-1].decode().strip()
 
-            try:
-                return int(raw, 16)
-            except ValueError:
-                # Handle different return formats
-                for ch in ('{', '}'):
-                    raw = raw.replace(ch, '')
-                parts = raw.split(', ')
-                parts.reverse()
-                return int.from_bytes(bytearray(int(x, 16) for x in parts), 'big')
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"ACPI call failed: {e}")
+        if raw.startswith('{'):
+            return self._buffer_to_int(raw)
+        try:
+            return int(raw, 16)
+        except ValueError:
+            return self._buffer_to_int(raw)
 
     def ec_read(self, addr: int) -> int:
         """Safely read from EC address."""
@@ -290,6 +415,7 @@ class ECController:
     def read_status(self) -> Optional[Dict]:
         """Read fan status from sysfs."""
         if not self.ec_sysfs_available:
+            print("EC sysfs not available")
             return None
 
         try:
@@ -304,10 +430,19 @@ class ECController:
                 0xA0: "Custom"
             }
 
+            # Safely read temperatures with bounds checking
+            cpu_temp = data[EC_CPU_TEMP] if EC_CPU_TEMP < len(data) else 0
+            gpu_temp = data[EC_GPU_TEMP] if EC_GPU_TEMP < len(data) else 0
+            
+            # Debug output for temperature offsets
+            # print(f"EC data length: {len(data)}, CPU temp offset: {EC_CPU_TEMP}, GPU temp offset: {EC_GPU_TEMP}")
+            # print(f"CPU temp raw: {cpu_temp}, GPU temp raw: {gpu_temp}")
+
             return {
                 "cpu_rpm": data[EC_CPU_RPM_LO] | (data[EC_CPU_RPM_HI] << 8),
                 "gpu_rpm": data[EC_GPU_RPM_LO] | (data[EC_GPU_RPM_HI] << 8),
-                "cpu_temp": data[EC_CPU_TEMP],
+                "cpu_temp": cpu_temp,
+                "gpu_temp": gpu_temp,
                 "fan_duty": data[EC_FAN_DUTY],
                 "fan_mode": mode_map.get(mode_byte, f"Unknown (0x{mode_byte:02X})"),
                 "fan_mode_id": mode_byte,
@@ -367,56 +502,128 @@ class ECController:
 
 
 # ============================================================================
-# RGB KEYBOARD CONTROLLER
+# RGB KEYBOARD CONTROLLER  (ite8291r3-ctl backend — kernel 7+)
+# NOTE: hid-ite8291r3 kernel module must NOT be loaded, and usbhid must be
+#       unbound from 1-8:1.1, for this to work.  See setup.sh.
 # ============================================================================
 
 class KeyboardController:
-    """Keyboard RGB controller."""
+    """Keyboard RGB controller using ite8291r3_ctl Python library directly.
+
+    Per-key hardware writes via set_key_colors({(row,col): (r,g,b)}).
+    write_zone() updates the cache; flush_all_zones() pushes everything
+    to hardware in one USB transaction batch (6 row writes).
+    """
 
     def __init__(self):
-        self.led_paths: Dict[int, Path] = {}
-        self._cache_led_paths()
+        self._color_cache: Dict[int, Tuple[int, int, int]] = {}
+        self._brightness = 50          # 0-50 hardware range
+        self._rc_map: Dict[Tuple[int,int], Tuple[int,int,int]] = {}
+        self._handle = None
+        self._ite_mod = None
+        # Pre-populate cache so refresh_colors() shows black on start
+        for z in range(TOTAL_ZONES):
+            self._color_cache[z] = (0, 0, 0)
+        self._open_device()
 
-    def _cache_led_paths(self):
-        base = Path(SYSFS_BASE)
-        zone0_path = base / LED_PREFIX
-        if zone0_path.exists():
-            self.led_paths[0] = zone0_path
-        for i in range(1, TOTAL_ZONES):
-            path = base / f"{LED_PREFIX}_{i}"
-            if path.exists():
-                self.led_paths[i] = path
+    def _open_device(self):
+        try:
+            sys.path.insert(0, '/usr/lib/python3.14/site-packages')
+            from ite8291r3_ctl import ite8291r3 as ite
+            self._ite_mod = ite
+            self._handle = ite.get()
+        except Exception as e:
+            print(f"RGB: device open failed: {e}")
+
+    @staticmethod
+    def _scale(v: int) -> int:
+        """Convert 0-50 (internal) to 0-255 (USB HID range)."""
+        return max(0, min(255, int(v * 5.1)))
+
+    # ── Internal helpers ──────────────────────────────────────────────────
+
+    def _push_key_colors(self):
+        """Push full rc_map to hardware (one set_key_colors call = 6 row writes)."""
+        if not self._handle or not self._rc_map:
+            return
+        try:
+            self._handle.set_key_colors(
+                self._rc_map,
+                brightness=self._brightness,
+                enable_user_mode=True,
+            )
+        except Exception as e:
+            print(f"RGB hardware write error: {e}")
+
+    # ── Public API ────────────────────────────────────────────────────────
 
     def get_all_zones(self) -> List[int]:
-        return list(self.led_paths.keys())
+        return list(range(TOTAL_ZONES))
 
     def write_zone(self, zone: int, r: int, g: int, b: int) -> bool:
-        if zone not in self.led_paths:
-            return False
+        """Update cache + rc_map for zone. Call flush_all_zones() to push."""
         r = max(0, min(MAX_BRIGHTNESS, r))
         g = max(0, min(MAX_BRIGHTNESS, g))
         b = max(0, min(MAX_BRIGHTNESS, b))
-        try:
-            (self.led_paths[zone] / "multi_intensity").write_text(f"{r} {g} {b}")
-            return True
-        except:
-            return False
+        self._color_cache[zone] = (r, g, b)
+        rc = ZONE_TO_RC.get(zone)
+        if rc:
+            self._rc_map[rc] = (self._scale(r), self._scale(g), self._scale(b))
+        return True
+
+    def flush_all_zones(self):
+        """Push entire cached key map to hardware in one call."""
+        self._push_key_colors()
+
+    def flush_mono(self):
+        """Push full per-key map (used by animation engine end-of-frame)."""
+        self._push_key_colors()
 
     def set_all(self, r: int, g: int, b: int):
-        for zone in self.led_paths:
-            self.write_zone(zone, r, g, b)
+        """Set all zones to one color and push to hardware immediately."""
+        r = max(0, min(MAX_BRIGHTNESS, r))
+        g = max(0, min(MAX_BRIGHTNESS, g))
+        b = max(0, min(MAX_BRIGHTNESS, b))
+        for z in range(TOTAL_ZONES):
+            self._color_cache[z] = (r, g, b)
+        r8, g8, b8 = self._scale(r), self._scale(g), self._scale(b)
+        self._rc_map = {rc: (r8, g8, b8) for rc in ZONE_TO_RC.values()}
+        if not self._handle:
+            return
+        try:
+            if r8 == 0 and g8 == 0 and b8 == 0:
+                self._handle.turn_off()
+            else:
+                self._handle.set_color((r8, g8, b8), brightness=self._brightness)
+        except Exception as e:
+            print(f"RGB set_all error: {e}")
 
     def get_zone_color(self, zone: int) -> Optional[Tuple[int, int, int]]:
-        if zone not in self.led_paths:
-            return None
+        return self._color_cache.get(zone)
+
+    def set_effect(self, name: str, speed: int = 5) -> bool:
+        """Trigger a hardware effect (rainbow, wave, breathing, etc.)."""
+        if not self._handle or not self._ite_mod:
+            return False
         try:
-            content = (self.led_paths[zone] / "multi_intensity").read_text().strip()
-            parts = content.split()
-            if len(parts) == 3:
-                return (int(parts[0]), int(parts[1]), int(parts[2]))
-        except:
-            pass
-        return None
+            effect_fn = self._ite_mod.effects.get(name)
+            if effect_fn:
+                self._handle.set_effect(
+                    effect_fn(speed=speed, brightness=self._brightness)
+                )
+                return True
+        except Exception as e:
+            print(f"RGB effect error: {e}")
+        return False
+
+    def set_brightness(self, level: int):
+        """Set brightness 0-50."""
+        self._brightness = max(0, min(50, level))
+        if self._handle:
+            try:
+                self._handle.set_brightness(self._brightness)
+            except Exception as e:
+                print(f"RGB brightness error: {e}")
 
 
 # ============================================================================
@@ -533,6 +740,7 @@ class FanDisplayWidget(Gtk.Box):
         self.cpu_rpm = 0
         self.gpu_rpm = 0
         self.cpu_temp = 0
+        self.gpu_temp = 0
         self.fan_duty = 0
         self.fan_mode = "Unknown"
         self.rotation_angle = 0
@@ -552,18 +760,16 @@ class FanDisplayWidget(Gtk.Box):
         self.drawing_area.set_halign(Gtk.Align.CENTER)
         self.append(self.drawing_area)
 
-        # Status labels
-        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=20)
+        # Status labels (GPU first, CPU second - showing both RPM and temp)
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=15)
         status_box.set_halign(Gtk.Align.CENTER)
 
-        self.cpu_label = Gtk.Label(label="CPU: -- RPM")
-        self.gpu_label = Gtk.Label(label="GPU: -- RPM")
-        self.temp_label = Gtk.Label(label="Temp: --°C")
+        self.gpu_label = Gtk.Label(label="GPU: -- RPM | --°C")
+        self.cpu_label = Gtk.Label(label="CPU: -- RPM | --°C")
         self.mode_label = Gtk.Label(label="Mode: --")
 
-        status_box.append(self.cpu_label)
         status_box.append(self.gpu_label)
-        status_box.append(self.temp_label)
+        status_box.append(self.cpu_label)
         status_box.append(self.mode_label)
         self.append(status_box)
 
@@ -594,15 +800,15 @@ class FanDisplayWidget(Gtk.Box):
         fan_size = min(55, height // 3)
         center_y = height // 2
 
-        # CPU Fan (left)
-        cpu_x = width // 4
-        self._draw_single_fan(cr, cpu_x, center_y, fan_size,
-                              self.cpu_rpm, "#3498db", "CPU")
-
-        # GPU Fan (right)
-        gpu_x = 3 * width // 4
+        # GPU Fan (left) - swapped positions per user request
+        gpu_x = width // 4
         self._draw_single_fan(cr, gpu_x, center_y, fan_size,
                               self.gpu_rpm, "#9b59b6", "GPU")
+
+        # CPU Fan (right) - swapped positions per user request
+        cpu_x = 3 * width // 4
+        self._draw_single_fan(cr, cpu_x, center_y, fan_size,
+                              self.cpu_rpm, "#3498db", "CPU")
 
         # Connection line
         cr.set_source_rgba(0.3, 0.3, 0.35, 0.5)
@@ -673,13 +879,16 @@ class FanDisplayWidget(Gtk.Box):
             self.cpu_rpm = status.get('cpu_rpm', 0)
             self.gpu_rpm = status.get('gpu_rpm', 0)
             self.cpu_temp = status.get('cpu_temp', 0)
+            self.gpu_temp = status.get('gpu_temp', 0)
             self.fan_duty = status.get('fan_duty', 0)
             self.fan_mode = status.get('fan_mode', 'Unknown')
 
-            # Update labels
-            self.cpu_label.set_text(f"CPU: {self.cpu_rpm} RPM")
-            self.gpu_label.set_text(f"GPU: {self.gpu_rpm} RPM")
-            self.temp_label.set_text(f"Temp: {self.cpu_temp}°C")
+            # Debug: print temp values
+            print(f"[DEBUG] CPU temp: {self.cpu_temp}°C, GPU temp: {self.gpu_temp}°C")
+
+            # Update labels with RPM and temperature
+            self.gpu_label.set_text(f"GPU: {self.gpu_rpm} RPM | {self.gpu_temp}°C")
+            self.cpu_label.set_text(f"CPU: {self.cpu_rpm} RPM | {self.cpu_temp}°C")
             self.mode_label.set_text(f"Mode: {self.fan_mode}")
 
             # Update rotation angle for animation
@@ -803,12 +1012,18 @@ class KeyboardWidget(Gtk.Box):
         self.selected_keys.clear()
         for btn in self.key_buttons.values():
             btn.set_selected(False)
+        # Notify callback about selection change
+        if self.selection_callback:
+            self.selection_callback(self.selected_keys)
 
     def select_all(self):
         """Select all keys."""
         self.selected_keys = set(self.key_buttons.keys())
         for btn in self.key_buttons.values():
             btn.set_selected(True)
+        # Notify callback about selection change
+        if self.selection_callback:
+            self.selection_callback(self.selected_keys)
 
     def refresh_colors(self):
         """Refresh colors from hardware - show actual per-key colors."""
@@ -828,6 +1043,7 @@ class KeyboardWidget(Gtk.Box):
             # Write any secondary zones for this key (e.g. Tab spans zones 42+63)
             for extra_zone in SECONDARY_ZONES.get(key_name, []):
                 self.controller.write_zone(extra_zone, r, g, b)
+        self.controller.flush_all_zones()
 
     def set_all_keys_color(self, r: int, g: int, b: int):
         """Set all keys to a color (writes to hardware and updates display)."""
@@ -848,6 +1064,7 @@ class KeyboardWidget(Gtk.Box):
                 # Write any secondary zones for this key
                 for extra_zone in SECONDARY_ZONES.get(key_name, []):
                     self.controller.write_zone(extra_zone, r, g, b)
+            self.controller.flush_all_zones()
 
     def get_all_zones(self) -> List[int]:
         """Get all zone IDs that have buttons."""
@@ -921,6 +1138,18 @@ class AnimationEngine:
     def _loop(self):
         """Main animation loop running in the background thread."""
         frame = 0
+
+        # Hardware effects — delegate to the device directly (best quality)
+        hw_effects = {
+            "rainbow": "rainbow",
+            "wave":    "wave",
+        }
+        if self.animation_type in hw_effects:
+            self.controller.set_effect(hw_effects[self.animation_type])
+            # Keep thread alive so stop() works cleanly; hardware runs on its own
+            self._stop_event.wait()
+            return
+
         while not self._stop_event.is_set():
             t_start = time.monotonic()
 
@@ -931,20 +1160,18 @@ class AnimationEngine:
             elif self.animation_type == "wave":
                 self._wave_frame(frame)
 
+            # Push blended color to hardware after each frame
+            self.controller.flush_mono()
+
             frame += 1
 
             # Refresh the GUI preview every 3 frames.
-            # GLib.idle_add is safe to call from any thread.
             if frame % 3 == 0:
                 GLib.idle_add(self.keyboard.refresh_colors)
 
-            # Sleep for the remainder of the frame interval so we don't
-            # busy-spin and eat CPU between sysfs writes.
             elapsed = time.monotonic() - t_start
             sleep_for = self.FRAME_INTERVAL - elapsed
             if sleep_for > 0:
-                # Use the stop_event as a sleeper so stop() wakes us up
-                # immediately instead of waiting out the full interval.
                 self._stop_event.wait(timeout=sleep_for)
 
     # ------------------------------------------------------------------
@@ -1445,7 +1672,10 @@ class SystemControllerGui(Gtk.ApplicationWindow):
                 status = self.ec_controller.read_status()
                 if status:
                     self.fan_display.update_status(status)
-                    self.status_label.set_text(f"CPU: {status['cpu_temp']}°C | {status['fan_mode']}")
+                    # Update status label with both temps
+                    self.status_label.set_text(
+                        f"CPU: {status['cpu_temp']}°C | GPU: {status.get('gpu_temp', 0)}°C | {status['fan_mode']}"
+                    )
             except Exception as e:
                 print(f"Status update error: {e}")
         return True  # Continue timer
