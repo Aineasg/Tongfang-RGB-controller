@@ -80,7 +80,6 @@ EC_ADDR_SUPPORT_BYTE5 = 1858
 EC_CPU_RPM_LO = 0x08
 EC_CPU_RPM_HI = 0x09
 EC_CPU_TEMP = 0x3E
-EC_GPU_TEMP = 0x45  # GPU temperature (common offset for ITE EC on gaming laptops)
 EC_FAN_DUTY = 0x60
 EC_FAN_STEP = 0x64
 EC_FAN_MODE = 0x8D
@@ -323,11 +322,12 @@ KEYBOARD_LAYOUT = [
 class ECController:
     """Safe Embedded Controller interface for fan control."""
 
-    def __init__(self):
+    def __init__(self, gpu_reader: Optional[GPUTempReader] = None):
         self.acpi_available = os.path.exists('/proc/acpi/call')
         self.ec_sysfs_available = os.path.exists('/sys/kernel/debug/ec/ec0/io')
         self._last_mode = None
         self._backup_state = {}
+        self._gpu_reader = gpu_reader
 
     def check_requirements(self) -> Tuple[bool, List[str]]:
         """Check if all requirements are met for EC access."""
@@ -430,13 +430,13 @@ class ECController:
                 0xA0: "Custom"
             }
 
-            # Safely read temperatures with bounds checking
+            # Safely read CPU temperature from EC
             cpu_temp = data[EC_CPU_TEMP] if EC_CPU_TEMP < len(data) else 0
-            gpu_temp = data[EC_GPU_TEMP] if EC_GPU_TEMP < len(data) else 0
             
-            # Debug output for temperature offsets
-            # print(f"EC data length: {len(data)}, CPU temp offset: {EC_CPU_TEMP}, GPU temp offset: {EC_GPU_TEMP}")
-            # print(f"CPU temp raw: {cpu_temp}, GPU temp raw: {gpu_temp}")
+            # Get GPU temperature from nvidia-smi/pynvml (proper method for NVIDIA GPUs)
+            gpu_temp = 0
+            if self._gpu_reader:
+                gpu_temp = self._gpu_reader.get_gpu_temp()
 
             return {
                 "cpu_rpm": data[EC_CPU_RPM_LO] | (data[EC_CPU_RPM_HI] << 8),
@@ -499,6 +499,137 @@ class ECController:
     def restore_safe_mode(self) -> bool:
         """Restore to intelligent/safe mode."""
         return self.set_fan_mode(FanMode.INTELLIGENT)
+
+
+# ============================================================================
+# NVIDIA GPU TEMPERATURE READER
+# Uses pynvml (preferred) or nvidia-smi subprocess to get accurate GPU temps
+# ============================================================================
+
+class GPUTempReader:
+    """Read NVIDIA GPU temperature using pynvml or nvidia-smi.
+    
+    On Arch Linux, the recommended way to get GPU temperature is through
+    nvidia-smi or the pynvml Python library (NVIDIA Management Library bindings).
+    """
+
+    def __init__(self):
+        self._pynvml = None
+        self._nvml_initialized = False
+        self._nvidia_smi_available = None
+        self._init_pynvml()
+
+    def _init_pynvml(self):
+        """Try to initialize pynvml library."""
+        try:
+            import pynvml
+            self._pynvml = pynvml
+            pynvml.nvmlInit()
+            self._nvml_initialized = True
+            print("GPU: pynvml initialized successfully")
+        except ImportError:
+            print("GPU: pynvml not installed, will use nvidia-smi fallback")
+            self._pynvml = None
+        except Exception as e:
+            print(f"GPU: pynvml init failed: {e}")
+            self._pynvml = None
+
+    def _check_nvidia_smi(self) -> bool:
+        """Check if nvidia-smi is available."""
+        if self._nvidia_smi_available is None:
+            self._nvidia_smi_available = shutil.which('nvidia-smi') is not None
+        return self._nvidia_smi_available
+
+    def get_gpu_temp(self) -> int:
+        """Get GPU temperature in Celsius.
+        
+        Returns 0 if unable to read temperature.
+        """
+        # Try pynvml first (preferred, more efficient)
+        if self._pynvml and self._nvml_initialized:
+            try:
+                handle = self._pynvml.nvmlDeviceGetHandleByIndex(0)
+                temp = self._pynvml.nvmlDeviceGetTemperature(handle, self._pynvml.NVML_TEMPERATURE_GPU)
+                return temp
+            except Exception as e:
+                # pynvml failed, fall back to nvidia-smi
+                pass
+
+        # Fallback to nvidia-smi subprocess
+        if self._check_nvidia_smi():
+            try:
+                result = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=temperature.gpu', '--format=csv,noheader,nounits'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                if result.returncode == 0:
+                    temp_str = result.stdout.strip().split('\n')[0].strip()
+                    return int(temp_str)
+            except Exception as e:
+                pass
+
+        return 0
+
+    def get_gpu_info(self) -> Dict:
+        """Get comprehensive GPU info including temp, utilization, memory."""
+        info = {
+            'temp': 0,
+            'utilization': 0,
+            'memory_used': 0,
+            'memory_total': 0,
+            'name': 'Unknown'
+        }
+
+        # Try pynvml first
+        if self._pynvml and self._nvml_initialized:
+            try:
+                handle = self._pynvml.nvmlDeviceGetHandleByIndex(0)
+                info['temp'] = self._pynvml.nvmlDeviceGetTemperature(handle, self._pynvml.NVML_TEMPERATURE_GPU)
+                info['name'] = self._pynvml.nvmlDeviceGetName(handle).decode('utf-8')
+                
+                util = self._pynvml.nvmlDeviceGetUtilizationRates(handle)
+                info['utilization'] = util.gpu
+                
+                mem = self._pynvml.nvmlDeviceGetMemoryInfo(handle)
+                info['memory_used'] = mem.used // (1024 * 1024)  # MB
+                info['memory_total'] = mem.total // (1024 * 1024)  # MB
+                
+                return info
+            except Exception:
+                pass
+
+        # Fallback to nvidia-smi
+        if self._check_nvidia_smi():
+            try:
+                result = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total,name',
+                     '--format=csv,noheader,nounits'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                if result.returncode == 0:
+                    parts = result.stdout.strip().split(',')
+                    if len(parts) >= 5:
+                        info['temp'] = int(parts[0].strip())
+                        info['utilization'] = int(parts[1].strip())
+                        info['memory_used'] = int(parts[2].strip())
+                        info['memory_total'] = int(parts[3].strip())
+                        info['name'] = parts[4].strip()
+            except Exception:
+                pass
+
+        return info
+
+    def shutdown(self):
+        """Clean up pynvml resources."""
+        if self._pynvml and self._nvml_initialized:
+            try:
+                self._pynvml.nvmlShutdown()
+            except Exception:
+                pass
 
 
 # ============================================================================
@@ -883,9 +1014,6 @@ class FanDisplayWidget(Gtk.Box):
             self.fan_duty = status.get('fan_duty', 0)
             self.fan_mode = status.get('fan_mode', 'Unknown')
 
-            # Debug: print temp values
-            print(f"[DEBUG] CPU temp: {self.cpu_temp}°C, GPU temp: {self.gpu_temp}°C")
-
             # Update labels with RPM and temperature
             self.gpu_label.set_text(f"GPU: {self.gpu_rpm} RPM | {self.gpu_temp}°C")
             self.cpu_label.set_text(f"CPU: {self.cpu_rpm} RPM | {self.cpu_temp}°C")
@@ -1096,9 +1224,10 @@ class AnimationEngine:
     thread-safe and schedules refresh_colors() back on the main thread.
     """
 
-    # Target frame interval in seconds.  50 ms ≈ 20 FPS which looks smooth
-    # without hammering sysfs.
+    # Target frame interval in seconds.
+    # Fire animation is slower for a more relaxed effect
     FRAME_INTERVAL = 0.05
+    FRAME_INTERVAL_FIRE = 0.15  # Slower for fire animation
 
     def __init__(self, controller: KeyboardController, keyboard_widget: KeyboardWidget):
         self.controller = controller
@@ -1170,7 +1299,9 @@ class AnimationEngine:
                 GLib.idle_add(self.keyboard.refresh_colors)
 
             elapsed = time.monotonic() - t_start
-            sleep_for = self.FRAME_INTERVAL - elapsed
+            # Use slower interval for fire animation
+            interval = self.FRAME_INTERVAL_FIRE if self.animation_type == "fire" else self.FRAME_INTERVAL
+            sleep_for = interval - elapsed
             if sleep_for > 0:
                 self._stop_event.wait(timeout=sleep_for)
 
@@ -1179,7 +1310,7 @@ class AnimationEngine:
     # ------------------------------------------------------------------
 
     def _fire_frame(self, frame: int):
-        """Fire animation - flames rising from bottom."""
+        """Fire animation - flames rising from bottom (slower, smoother)."""
         fire_colors = [
             (50, 0, 0),   # Deep red
             (50, 10, 0),  # Red-orange
@@ -1195,7 +1326,7 @@ class AnimationEngine:
             key_name = ZONE_TO_KEY.get(zone, "")
 
             if key_name in ["f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8",
-                            "f9", "f10", "f11", "f12", "esc", "prtsc", "del"]:
+                            "f9", "f10", "f11", "f12", "esc", "prtsc", "del", "scrlock"]:
                 row = 0
             elif key_name in ["1", "2", "3", "4", "5", "6", "7", "8", "9",
                                "0", "minus", "equal", "backspace", "grave"]:
@@ -1207,23 +1338,25 @@ class AnimationEngine:
                                "semicolon", "quote", "enter", "caps"]:
                 row = 3
             elif key_name in ["z", "x", "c", "v", "b", "n", "m", "comma",
-                               "period", "slash", "lshift", "rshift"]:
+                               "period", "slash", "lshift", "rshift", "backslash_left"]:
                 row = 4
-            elif key_name in ["lctrl", "fn", "lwin", "lalt", "space", "ralt", "rctrl"]:
+            elif key_name in ["lctrl", "fn", "lwin", "lalt", "space", "ralt", "rctrl", "copilot"]:
                 row = 5
             else:
                 row = 3
 
-            flicker = random.randint(-2, 2)
+            # Reduced flicker for slower, smoother animation
+            flicker = random.randint(-1, 1)
             intensity = (5 - row) / 5.0
-            intensity = max(0.0, min(1.0, intensity + random.uniform(-0.1, 0.1)))
+            intensity = max(0.0, min(1.0, intensity + random.uniform(-0.05, 0.05)))
             color_idx = int(intensity * (len(fire_colors) - 1))
             color_idx = max(0, min(len(fire_colors) - 1, color_idx + flicker))
             r, g, b = fire_colors[color_idx]
 
-            if random.random() < 0.1 and row >= 3:
-                r = min(50, r + random.randint(0, 10))
-                g = min(50, g + random.randint(0, 15))
+            # Reduced random sparks for smoother effect
+            if random.random() < 0.05 and row >= 3:
+                r = min(50, r + random.randint(0, 5))
+                g = min(50, g + random.randint(0, 8))
 
             self.controller.write_zone(zone, r, g, b)
 
@@ -1386,9 +1519,12 @@ class SystemControllerGui(Gtk.ApplicationWindow):
         # Initialize global CSS
         init_global_css()
 
+        # Initialize GPU temperature reader (uses nvidia-smi/pynvml)
+        self.gpu_reader = GPUTempReader()
+
         # Initialize controllers
         self.kbd_controller = KeyboardController()
-        self.ec_controller = ECController()
+        self.ec_controller = ECController(gpu_reader=self.gpu_reader)
 
         # Animation engine (will be initialized after keyboard widget)
         self.animation_engine = None
@@ -1686,6 +1822,8 @@ class SystemControllerGui(Gtk.ApplicationWindow):
             GLib.source_remove(self.status_timeout_id)
         if self.animation_engine:
             self.animation_engine.stop()
+        if self.gpu_reader:
+            self.gpu_reader.shutdown()
         return False
 
 
